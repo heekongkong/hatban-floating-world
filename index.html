@@ -774,6 +774,7 @@ function updateConfetti(dt){
 function fmt(t){var m=Math.floor(t/60),s=t-m*60;return m+':'+(s<10?'0':'')+s.toFixed(1);}
 function finish(){
   state.cleared=true; sndClear(); burst(bowls[N-1]);
+  logPlay('clear',{time_ms:Math.round(state.time*1000),coins:state.coins});
   var rec='';
   if(state.best===null||state.time<state.best){state.best=state.time;rec=' 🏅 신기록!';try{localStorage.setItem('hatban_best',String(state.time));}catch(_){}}
   $('clearInfo').innerHTML='기록 <b>'+fmt(state.time)+'</b>'+rec+'<br>모은 반찬 '+state.coins+' / '+coins.length+(state.best!==null?'<br>최고 기록 '+fmt(state.best):'');
@@ -786,10 +787,10 @@ function resetGame(){
   confetti.visible=false; spawnAt(bowls[0]); faceStart(); $('clear').classList.add('hidden');
 }
 $('goBtn').addEventListener('click',function(){
-  var nk=($('nick').value||'').trim(); if(!nk){nk='밥알'+Math.floor(10+Math.random()*90);} try{localStorage.setItem('hatban_nick',nk);}catch(_){} net.name=nk; netInit();
+  var nk=($('nick').value||'').trim(); if(!nk){nk='밥알'+Math.floor(10+Math.random()*90);} try{localStorage.setItem('hatban_nick',nk);}catch(_){} net.name=nk; netInit(); logPlay('start');
   $('start').classList.add('hidden'); initAudio(); state.started=true; state.time=0; jumpBuf=0;
 });
-$('againBtn').addEventListener('click',function(){resetGame();});
+$('againBtn').addEventListener('click',function(){resetGame();logPlay('start');});
 
 /* ================= 아바타 팩토리 / 멀티플레이 (Supabase Realtime) ================= */
 var JACKETS=[0xe0556b,0x3fa36b,0xf0a030,0x8a63d2,0x2fa9b8];
@@ -817,12 +818,22 @@ function nameSprite(txt){
   var t=new THREE.CanvasTexture(c); t.encoding=THREE.sRGBEncoding;
   var sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true})); sp.scale.set(3.4,0.85,1); return sp;
 }
+/* 플레이 횟수 기록: Supabase 'plays' 표에 한 줄씩 쌓아요 (설정이 없으면 아무 일도 안 해요). 닉네임/개인정보는 저장하지 않아요. */
+function logPlay(ev,extra){
+  try{
+    if(!net.sb) return;
+    var row={event:ev,session_id:net.id};
+    if(extra){ if(extra.time_ms!=null) row.time_ms=extra.time_ms; if(extra.coins!=null) row.coins=extra.coins; }
+    var r=net.sb.from('plays').insert(row);
+    if(r&&r.then) r.then(function(){},function(){});
+  }catch(e){}
+}
 var net={on:false,ch:null,id:Math.random().toString(36).slice(2,8),name:'',ci:Math.floor(Math.random()*JACKETS.length),remotes:{},t:0};
 function netInit(){
   var url=CFG.SUPABASE_URL, key=CFG.SUPABASE_ANON_KEY;
   if(!url||!key||!window.supabase||!window.supabase.createClient) return;
   try{
-    var sb=window.supabase.createClient(url,key);
+    var sb=window.supabase.createClient(url,key); net.sb=sb;
     net.ch=sb.channel('hatban-floating-world',{config:{broadcast:{self:false,ack:false}}});
     net.ch.on('broadcast',{event:'pos'},function(m){onNet(m.payload);}).subscribe(function(st){ if(st==='SUBSCRIBED'){net.on=true; toast('친구들과 연결됐어요 👥');} });
   }catch(e){ net.on=false; }
